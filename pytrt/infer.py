@@ -17,7 +17,6 @@
 import time
 import numpy as np
 import tensorrt as trt
-from loguru import logger
 import pycuda.driver as cuda
 import pycuda.autoinit
 
@@ -40,6 +39,7 @@ class TensorRTInfer:
         assert self.engine
         assert self.context
 
+        self.inference_time: float = 0.0
         # Setup I/O bindings
         self.inputs = []
         self.outputs = []
@@ -108,6 +108,5 @@ class TensorRTInfer:
         self.context.execute_v2(self.allocations)
         for o in range(len(outputs)):
             cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
-        logger.info(f"Inference time: {round((time.time() - inference_start_time) * 1000, ndigits=3)} ms\n")
-
+        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
         return outputs
