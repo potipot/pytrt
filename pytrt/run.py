@@ -1,6 +1,7 @@
 from pathlib import Path
 from data_processing import ImagePreprocessor
 from loguru import logger
+import fire
 
 from build_engine import EngineBuilder
 from infer import TensorRTInfer
@@ -46,4 +47,4 @@ def main(verbose: bool = False, workspace: int = 2, precision: str = "fp16", use
 
 
 if __name__ == "__main__":
-    main(verbose=False)
+    fire.Fire(main)
