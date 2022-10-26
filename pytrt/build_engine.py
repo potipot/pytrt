@@ -46,9 +46,6 @@ class EngineBuilder:
         self.config.max_workspace_size = workspace * (2 ** 30)
 
         if use_dla:
-            if self.builder.num_DLA_cores == 0:
-                logger.error("DLA was selected but not supported natively on this platform/device")
-                return
             self.config.default_device_type = trt.DeviceType.DLA
             self.config.DLA_core = 0
 
