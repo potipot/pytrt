@@ -28,10 +28,12 @@ class EngineBuilder:
     Parses an ONNX graph and builds a TensorRT engine from it.
     """
 
-    def __init__(self, verbose: bool = False, workspace: int = 8, use_dla: bool = False):
+    def __init__(self, verbose: bool = False, workspace: int = 8, use_dla: bool = False, precision: str = "fp16"):
         """
-        :param verbose: If enabled, a higher verbosity level will be set on the TensorRT logger.
-        :param workspace: Max memory workspace to allow, in Gb.
+        @param verbose: If enabled, a higher verbosity level will be set on the TensorRT logger.
+        @param use_dla: Uses DLA (deep learning accelerator) if available
+        @param precision: The datatype to use for the engine, either 'fp32', 'fp16' or 'int8'.
+        @param workspace: Max memory workspace to allow, in Gb.
         """
         self.trt_logger = trt.Logger(trt.Logger.INFO)
         if verbose:
@@ -42,9 +44,19 @@ class EngineBuilder:
         self.builder = trt.Builder(self.trt_logger)
         self.config = self.builder.create_builder_config()
         self.config.max_workspace_size = workspace * (2 ** 30)
+
         if use_dla:
+            if self.builder.num_DLA_cores == 0:
+                logger.error("DLA was selected but not supported natively on this platform/device")
+                return
             self.config.default_device_type = trt.DeviceType.DLA
             self.config.DLA_core = 0
+
+        if precision == "fp16":
+            if self.builder.platform_has_fast_fp16:
+                self.config.set_flag(trt.BuilderFlag.FP16)
+            else:
+                logger.warning("FP16 was selected but is not supported natively on this platform/device")
 
         self.batch_size = None
         self.network = None
@@ -81,26 +93,17 @@ class EngineBuilder:
         assert self.batch_size > 0
         self.builder.max_batch_size = self.batch_size
 
-    def create_engine(self, engine_path: Path, precision, overwrite: bool = False):
+    def create_engine(self, engine_path: Path, overwrite: bool = False):
         """
         Build the TensorRT engine and serialize it to disk.
         @param engine_path: The path where to serialize the engine to.
-        @param precision: The datatype to use for the engine, either 'fp32', 'fp16' or 'int8'.
         @param overwrite: whether to overwrite an existing TRT engine file
         """
-
-        if precision != "fp16":
-            raise RuntimeError("currently only fp16 precision is supported")
-
-        if not self.builder.platform_has_fast_fp16:
-            logger.warning("FP16 is not supported natively on this platform/device")
-        else:
-            self.config.set_flag(trt.BuilderFlag.FP16)
 
         if engine_path.exists() and not overwrite:
             logger.info(f"Engine filepath already exists and overwrite is set to False: {engine_path}")
         else:
-            logger.info(f"Building {precision} Engine in {engine_path}")
+            logger.info(f"Building Engine in {engine_path}")
             with self.builder.build_engine(self.network, self.config) as engine, open(engine_path, "wb") as f:
                 logger.info(f"Serializing engine to file: {engine_path}")
                 f.write(engine.serialize())
