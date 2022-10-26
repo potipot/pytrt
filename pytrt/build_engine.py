@@ -28,7 +28,7 @@ class EngineBuilder:
     Parses an ONNX graph and builds a TensorRT engine from it.
     """
 
-    def __init__(self, verbose=False, workspace=8):
+    def __init__(self, verbose: bool = False, workspace: int = 8, use_dla: bool = False):
         """
         :param verbose: If enabled, a higher verbosity level will be set on the TensorRT logger.
         :param workspace: Max memory workspace to allow, in Gb.
@@ -42,6 +42,9 @@ class EngineBuilder:
         self.builder = trt.Builder(self.trt_logger)
         self.config = self.builder.create_builder_config()
         self.config.max_workspace_size = workspace * (2 ** 30)
+        if use_dla:
+            self.config.default_device_type = trt.DeviceType.DLA
+            self.config.DLA_core = 0
 
         self.batch_size = None
         self.network = None
@@ -52,7 +55,7 @@ class EngineBuilder:
         Parse the ONNX graph and create the corresponding TensorRT network definition.
         :param onnx_path: The path to the ONNX graph to load.
         """
-        network_flags = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 
         self.network = self.builder.create_network(network_flags)
         self.parser = trt.OnnxParser(self.network, self.trt_logger)
