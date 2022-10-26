@@ -4,7 +4,7 @@ from loguru import logger
 import fire
 
 from build_engine import EngineBuilder
-from infer import TensorRTInfer
+from infer import TensorRTInfer, EncoderInference, DecoderInference
 from viz import draw_mask
 
 
@@ -25,8 +25,10 @@ def main(verbose: bool = False, workspace: int = 2, precision: str = "fp16", use
     decoder_builder.create_network(decoders_onnx_filepath)
     decoder_builder.create_engine(decoders_engine_filepath, precision)
 
-    encoder_inference = TensorRTInfer(encoder_engine_filepath)
-    decoders_inference = TensorRTInfer(decoders_engine_filepath)
+    # encoder_inference = TensorRTInfer(encoder_engine_filepath)
+    # decoders_inference = TensorRTInfer(decoders_engine_filepath)
+    encoder_inference = EncoderInference(encoder_engine_filepath)
+    decoders_inference = DecoderInference(decoders_engine_filepath)
 
     input_shape_wh = (448, 256)
     # Create a pre-processor object by specifying the required input resolution for YOLOv3
