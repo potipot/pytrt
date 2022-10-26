@@ -111,3 +111,44 @@ class TensorRTInfer:
             cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
         self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
         return outputs
+
+
+class EncoderInference(TensorRTInfer):
+    def infer(self, batch):
+        """
+        Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
+        the ImageBatcher class. Memory copying to and from the GPU device will be performed here.
+        :param batch: A numpy array holding the image batch.
+        :return: A nested list for each image in the batch and each detection in the list.
+        """
+        # Prepare the output data
+        # Process I/O and execute the network
+        inference_start_time = time.time()
+        for mem_placeholder, model_input in zip(self.inputs, batch):
+            cuda.memcpy_htod(mem_placeholder["allocation"], np.ascontiguousarray(model_input))
+
+        self.context.execute_v2(self.allocations)
+        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
+        return self.outputs
+
+
+class DecoderInference(TensorRTInfer):
+    def infer(self, batch):
+        """
+        Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
+        the ImageBatcher class. Memory copying to and from the GPU device will be performed here.
+        :param batch: A numpy array holding the image batch.
+        :return: A nested list for each image in the batch and each detection in the list.
+        """
+        # Prepare the output data
+        outputs = [np.zeros(shape, dtype) for shape, dtype in self.output_spec()]
+        # Process I/O and execute the network
+        inference_start_time = time.time()
+        for model_input, encoder_output in zip(self.inputs, batch):
+            memory_size = np.zeros(model_input["shape"], model_input["dtype"]).nbytes
+            cuda.memcpy_dtod(model_input["allocation"], encoder_output["allocation"], memory_size)
+        self.context.execute_v2(self.allocations)
+        for o in range(len(outputs)):
+            cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
+        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
+        return outputs
