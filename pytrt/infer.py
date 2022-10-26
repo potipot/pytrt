@@ -104,7 +104,8 @@ class TensorRTInfer:
         outputs = [np.zeros(shape, dtype) for shape, dtype in self.output_spec()]
         # Process I/O and execute the network
         inference_start_time = time.time()
-        cuda.memcpy_htod(self.inputs[0]["allocation"], np.ascontiguousarray(batch))
+        for mem_placeholder, model_input in zip(self.inputs, batch):
+            cuda.memcpy_htod(mem_placeholder["allocation"], np.ascontiguousarray(model_input))
         self.context.execute_v2(self.allocations)
         for o in range(len(outputs)):
             cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
