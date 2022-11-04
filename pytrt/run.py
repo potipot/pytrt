@@ -1,10 +1,9 @@
 from pathlib import Path
 from data_processing import ImagePreprocessor
-from loguru import logger
 import fire
 
 from build_engine import EngineBuilder
-from infer import TensorRTInfer, EncoderInference, DecoderInference
+from infer import UniModelInference, SplitModelInference
 from viz import draw_mask
 
 
@@ -27,24 +26,16 @@ def main(verbose: bool = False, workspace: int = 2, precision: str = "fp16", use
     decoder_builder.create_network(decoders_onnx_filepath)
     decoder_builder.create_engine(decoders_engine_filepath)
 
-    encoder_inference = EncoderInference(encoder_engine_filepath)
-    decoders_inference = DecoderInference(decoders_engine_filepath)
-
+    inference = SplitModelInference(encoder_engine_filepath, decoders_engine_filepath)
+    # inference = UniModelInference(path_to_unimodel)
     input_shape_wh = (448, 256)
     # Create a pre-processor object by specifying the required input resolution for YOLOv3
     images_dir = path / "images"
     processor = ImagePreprocessor(input_shape=input_shape_wh)
     for image_path in images_dir.iterdir():
         image_raw, image_preprocessed = processor.process(image_path)
-        encoder_output = encoder_inference.infer(image_preprocessed)
-        decoders_output = decoders_inference.infer(encoder_output)
-        encoder_inference_time = encoder_inference.inference_time
-        decoders_inference_time = decoders_inference.inference_time
-        total_inference_time = round(encoder_inference_time + decoders_inference_time, ndigits=3)
-        logger.info(
-            f"inference time: {total_inference_time} ms (encoder: {encoder_inference_time}, decoders: {decoders_inference_time})"
-        )
-        mask = decoders_output[-1]
+        output = inference.infer(image_preprocessed)
+        mask = output[-1]
         draw_mask(mask, image_path.name)
 
 

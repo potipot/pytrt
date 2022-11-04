@@ -21,29 +21,34 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 
 
-class TensorRTInfer:
+class _TRTInferenceBase:
     """
     Implements inference for the EfficientDet TensorRT engine.
     """
 
-    def __init__(self, engine_path):
+    def __init__(self, engine_path, logger: trt.Logger = None):
         """
         :param engine_path: The path to the serialized engine to load from disk.
         """
-        # Load TRT engine
-        self.logger = trt.Logger(trt.Logger.ERROR)
+        if logger is None:
+            logger = trt.Logger(trt.Logger.INFO)
+        self.logger = logger
         trt.init_libnvinfer_plugins(self.logger, namespace="")
+
+        # Load TRT engine
         with open(engine_path, "rb") as f, trt.Runtime(self.logger) as runtime:
             self.engine = runtime.deserialize_cuda_engine(f.read())
         self.context = self.engine.create_execution_context()
         assert self.engine
         assert self.context
 
-        self.inference_time: float = 0.0
         # Setup I/O bindings
         self.inputs = []
         self.outputs = []
         self.allocations = []
+        self.setup_io_bindings()
+
+    def setup_io_bindings(self):
         for i in range(self.engine.num_bindings):
             is_input = False
             if self.engine.binding_is_input(i):
@@ -87,11 +92,10 @@ class TensorRTInfer:
         Get the specs for the output tensors of the network. Useful to prepare memory allocations.
         :return: A list with two items per element, the shape and (numpy) datatype of each output tensor.
         """
-        specs = []
-        for o in self.outputs:
-            specs.append((o["shape"], o["dtype"]))
-        return specs
+        return [(o["shape"], o["dtype"]) for o in self.outputs]
 
+
+class UniModelInference(_TRTInferenceBase):
     def infer(self, batch):
         """
         Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
@@ -109,46 +113,47 @@ class TensorRTInfer:
         self.context.execute_v2(self.allocations)
         for o in range(len(outputs)):
             cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
-        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
+        inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
+        message = f"inference time: {inference_time} ms"
+        self.logger.log(trt.Logger.Severity.INFO, message)
         return outputs
 
 
-class EncoderInference(TensorRTInfer):
+class SplitModelInference:
+    def __init__(self, encoder_engine_path, decoders_engine_path):
+        self.logger = trt.Logger(trt.Logger.INFO)
+        self.encoder = _TRTInferenceBase(encoder_engine_path, logger=self.logger)
+        self.decoders = _TRTInferenceBase(decoders_engine_path, logger=self.logger)
+
     def infer(self, batch):
-        """
-        Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
-        the ImageBatcher class. Memory copying to and from the GPU device will be performed here.
-        :param batch: A numpy array holding the image batch.
-        :return: A nested list for each image in the batch and each detection in the list.
-        """
         # Prepare the output data
-        # Process I/O and execute the network
+        outputs = [np.zeros(shape, dtype) for shape, dtype in self.decoders.output_spec()]
         inference_start_time = time.time()
-        for mem_placeholder, model_input in zip(self.inputs, batch):
+
+        # copy data from python to cuda
+        for mem_placeholder, model_input in zip(self.encoder.inputs, batch):
             cuda.memcpy_htod(mem_placeholder["allocation"], np.ascontiguousarray(model_input))
 
-        self.context.execute_v2(self.allocations)
-        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
-        return self.outputs
+        # execute encoder context
+        self.encoder.context.execute_v2(self.encoder.allocations)
+        encoder_inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
 
+        decoders_start_time = time.time()
+        # TODO: avoid copying in favor of sharing space?
+        # copy data from encoders output to decoders input
+        for decoders_input, encoder_output in zip(self.decoders.inputs, self.encoder.outputs):
+            memory_size = np.zeros(decoders_input["shape"], decoders_input["dtype"]).nbytes
+            cuda.memcpy_dtod(decoders_input["allocation"], encoder_output["allocation"], memory_size)
 
-class DecoderInference(TensorRTInfer):
-    def infer(self, batch):
-        """
-        Execute inference on a batch of images. The images should already be batched and preprocessed, as prepared by
-        the ImageBatcher class. Memory copying to and from the GPU device will be performed here.
-        :param batch: A numpy array holding the image batch.
-        :return: A nested list for each image in the batch and each detection in the list.
-        """
-        # Prepare the output data
-        outputs = [np.zeros(shape, dtype) for shape, dtype in self.output_spec()]
-        # Process I/O and execute the network
-        inference_start_time = time.time()
-        for model_input, encoder_output in zip(self.inputs, batch):
-            memory_size = np.zeros(model_input["shape"], model_input["dtype"]).nbytes
-            cuda.memcpy_dtod(model_input["allocation"], encoder_output["allocation"], memory_size)
-        self.context.execute_v2(self.allocations)
+        # execute decoders context
+        self.decoders.context.execute_v2(self.decoders.allocations)
+
+        # copy data from cuda to python
         for o in range(len(outputs)):
-            cuda.memcpy_dtoh(outputs[o], self.outputs[o]["allocation"])
-        self.inference_time = round((time.time() - inference_start_time) * 1000, ndigits=3)
+            cuda.memcpy_dtoh(outputs[o], self.decoders.outputs[o]["allocation"])
+
+        decoders_inference_time = round((time.time() - decoders_start_time) * 1000, ndigits=3)
+        total_inference_time = round(encoder_inference_time + decoders_inference_time, ndigits=3)
+        message = f"inference time: {total_inference_time} ms (encoder: {encoder_inference_time}, decoders: {decoders_inference_time})"
+        self.logger.log(trt.Logger.Severity.INFO, message)
         return outputs
