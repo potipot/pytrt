@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "pytrt"
+version = "0.1.0"
+description = "wrapper for tensorrt inference in python"
+authors = ["potipot <pawel.potrykus@hayden.ai>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fire = "^0.5.0"
+pillow = ">8.3.2"
+numpy = ">1.23"
+onnx = ">=1.9.0"
+matplotlib = ">=3.6.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
