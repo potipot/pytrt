@@ -59,14 +59,7 @@ class EngineBuilder:
         self.network = None
         self.parser = None
 
-    def create_network(self, onnx_path: Path):
-        """
-        Parse the ONNX graph and create the corresponding TensorRT network definition.
-        :param onnx_path: The path to the ONNX graph to load.
-        """
-        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-
-        self.network = self.builder.create_network(network_flags)
+    def parse_network(self, onnx_path: Path):
         self.parser = trt.OnnxParser(self.network, self.trt_logger)
 
         with open(onnx_path, "rb") as f:
@@ -75,6 +68,16 @@ class EngineBuilder:
                 for error in range(self.parser.num_errors):
                     logger.error(self.parser.get_error(error))
                 sys.exit(1)
+
+    def create_network(self, **parser_args):
+        """
+        Parse the ONNX graph and create the corresponding TensorRT network definition.
+        :param onnx_path: The path to the ONNX graph to load.
+        """
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+
+        self.network = self.builder.create_network(network_flags)
+        self.parse_network(**parser_args)
 
         inputs = [self.network.get_input(i) for i in range(self.network.num_inputs)]
         outputs = [self.network.get_output(i) for i in range(self.network.num_outputs)]
@@ -104,3 +107,17 @@ class EngineBuilder:
             with self.builder.build_engine(self.network, self.config) as engine, open(engine_path, "wb") as f:
                 logger.info(f"Serializing engine to file: {engine_path}")
                 f.write(engine.serialize())
+
+
+class CaffeeEngineBuilder(EngineBuilder):
+    def parse_network(self, prototxt_path: Path, caffemodel_path: Path):
+        self.parser = trt.CaffeParser()
+        self.parser.parse(
+            deploy=prototxt_path.as_posix(),
+            model=caffemodel_path.as_posix(),
+            network=self.network,
+            dtype=trt.float16
+        )
+        # explicitly set the last layer output as network output
+        self.network.mark_output(self.network.get_layer(self.network.num_layers - 1).get_output(0))
+
