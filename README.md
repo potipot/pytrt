@@ -21,3 +21,7 @@ pip3 install 'pycuda<2021.1'
 ```commandline
 sudo apt-get install python3-matplotlib
 ```
+
+# install tensorrt
+pip install nvidia-pyindex
+pip install nvidia-tensorrt
