@@ -1,8 +1,9 @@
-# upgrade PIP
+# Jetson installation
+1. upgrade PIP
 ```
 curl https://bootstrap.pypa.io/get-pip.py | python -
 ```
-# install pycuda
+2. install pycuda
 
 ```
 export CUDA_HOME=/usr/local/cuda
@@ -17,11 +18,15 @@ export C_INCLUDE_PATH=${CUDA_HOME}/include:${C_INCLUDE_PATH}
 ```
 pip3 install 'pycuda<2021.1'
 ```
-# install matplotlib
+3. install matplotlib
 ```commandline
 sudo apt-get install python3-matplotlib
 ```
 
-# install tensorrt
+# Desktop installation
+```
+pip install .
+pip install pycuda==2022.2.1
 pip install nvidia-pyindex
 pip install nvidia-tensorrt
+```
